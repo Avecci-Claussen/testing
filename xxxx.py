@@ -14,7 +14,8 @@ def find_private_key(input_tuple):
     start_number, end_number, target_hash160, max_attempts = input_tuple
     curve = ecdsa.SECP256k1
 
-    for number in range(start_number, end_number + 1):
+    for number in range(start_number, end_number + 1)
+    print(f"Scanning private key (decimal): {number}"):
 
         private_key = ecdsa.SigningKey.from_secret_exponent(number, curve)
         public_key = private_key.get_verifying_key().to_string("compressed")
