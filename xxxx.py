@@ -48,7 +48,7 @@ if __name__ == "__main__":
     start_number = 36893488147419103232
     end_number = 73786976294838206463
     target_hash160 = "20d45a6a762535700ce9e0b216e31994335db8a5"
-    num_cores = 10  # Set the number of CPU cores you want to use.
+    num_cores = 78  # Set the number of CPU cores you want to use.
 
     found_private_key = parallel_private_key_search(start_number, end_number, target_hash160, num_cores)
     if found_private_key:
