@@ -11,13 +11,13 @@ def pubkey_to_hash160(public_key_bytes):
     hash160.update(sha256)
     return hash160.hexdigest()
 
-def find_private_key(start_number, end_number, target_hash160):
+def find_private_key(start_number, end_number, target_hash160, counter):
     curve = ecdsa.SECP256k1
-    start_time = time.time()
-    keys_scanned = 0
 
     for number in range(start_number, end_number+1):
-        keys_scanned += 1
+        with counter.get_lock():
+            counter.value += 1
+
         private_key = ecdsa.SigningKey.from_secret_exponent(number, curve)
         public_key = private_key.get_verifying_key().to_string("compressed")
         current_hash160 = pubkey_to_hash160(public_key)
@@ -25,14 +25,18 @@ def find_private_key(start_number, end_number, target_hash160):
         if current_hash160 == target_hash160:
             return number
 
-        if keys_scanned % 1000000 == 0:  # adjust this number based on your expected speed
-            elapsed_time = time.time() - start_time
-            if elapsed_time >= 10:  # print every 10 seconds
-                print(f"Speed: {keys_scanned / elapsed_time} keys/s")
-                start_time = time.time()
-                keys_scanned = 0
-
     return None
+
+def monitor(counter):
+    start_time = time.time()
+
+    while True:
+        time.sleep(10)  # wait for 10 seconds
+        with counter.get_lock():
+            keys_scanned = counter.value
+            counter.value = 0  # reset the counter
+
+        print(f"Speed: {keys_scanned / (time.time() - start_time)} keys/s")
 
 def worker(args):
     return find_private_key(*args)
@@ -43,11 +47,18 @@ if __name__ == "__main__":
     target_hash160 = "20d45a6a762535700ce9e0b216e31994335db8a5"
     vcpus = 56
 
+    # A shared counter
+    counter = multiprocessing.Value('i', 0)
+
+    # Start the monitor process
+    monitor_process = multiprocessing.Process(target=monitor, args=(counter,))
+    monitor_process.start()
+
     # Divide the work among the available CPUs
     pool = multiprocessing.Pool(vcpus)
     ranges = [(start_number + i * (end_number - start_number) // vcpus, 
                start_number + (i+1) * (end_number - start_number) // vcpus, 
-               target_hash160) for i in range(vcpus)]
+               target_hash160, counter) for i in range(vcpus)]
 
     results = pool.map(worker, ranges)
 
@@ -57,6 +68,7 @@ if __name__ == "__main__":
             print(f"Private key found:{result}")
             print(f"Private key found:{ hex(result) [2:]  }")
             pool.terminate()  # Stop all worker processes
+            monitor_process.terminate()  # Stop the monitor process
             break
     else:
         print("No private key found in the specified range.")
