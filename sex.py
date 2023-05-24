@@ -11,11 +11,11 @@ def pubkey_to_hash160(public_key_bytes):
     hash160.update(sha256)
     return hash160.hexdigest()
 
-def find_private_key(start_number, end_number, target_hash160, shared_dict):
+def find_private_key(start_number, end_number, target_hash160, shared_dict, lock):
     curve = ecdsa.SECP256k1
 
     for number in range(start_number, end_number+1):
-        with shared_dict.get_lock():
+        with lock:
             shared_dict['keys_scanned'] += 1
 
         private_key = ecdsa.SigningKey.from_secret_exponent(number, curve)
@@ -27,12 +27,12 @@ def find_private_key(start_number, end_number, target_hash160, shared_dict):
 
     return None
 
-def monitor(shared_dict):
+def monitor(shared_dict, lock):
     start_time = time.time()
 
     while True:
         time.sleep(10)  # wait for 10 seconds
-        with shared_dict.get_lock():
+        with lock:
             keys_scanned = shared_dict['keys_scanned']
             shared_dict['keys_scanned'] = 0  # reset the counter
 
@@ -47,20 +47,21 @@ if __name__ == "__main__":
     target_hash160 = "20d45a6a762535700ce9e0b216e31994335db8a5"
     vcpus = 56
 
-    # A shared dictionary
+    # A shared dictionary and a lock
     manager = multiprocessing.Manager()
     shared_dict = manager.dict()
     shared_dict['keys_scanned'] = 0
+    lock = manager.Lock()
 
     # Start the monitor process
-    monitor_process = multiprocessing.Process(target=monitor, args=(shared_dict,))
+    monitor_process = multiprocessing.Process(target=monitor, args=(shared_dict, lock))
     monitor_process.start()
 
     # Divide the work among the available CPUs
     pool = multiprocessing.Pool(vcpus)
     ranges = [(start_number + i * (end_number - start_number) // vcpus, 
                start_number + (i+1) * (end_number - start_number) // vcpus, 
-               target_hash160, shared_dict) for i in range(vcpus)]
+               target_hash160, shared_dict, lock) for i in range(vcpus)]
 
     results = pool.map(worker, ranges)
 
