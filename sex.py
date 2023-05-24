@@ -3,21 +3,18 @@ import binascii
 import ecdsa
 import random
 import multiprocessing
-import time
 
 def pubkey_to_hash160(public_key_bytes):
     sha256 = hashlib.sha256(public_key_bytes).digest()
     hash160 = hashlib.new('ripemd160')
     hash160.update(sha256)
-    return hash160.hexdigest()
+    return hash160.digest()
 
-def find_private_key(start_number, end_number, target_hash160, shared_dict, lock):
+def find_private_key(args):
+    start_number, end_number, target_hash160 = args
     curve = ecdsa.SECP256k1
 
-    for number in range(start_number, end_number+1):
-        with lock:
-            shared_dict['keys_scanned'] += 1
-
+    for number in range(start_number, end_number):
         private_key = ecdsa.SigningKey.from_secret_exponent(number, curve)
         public_key = private_key.get_verifying_key().to_string("compressed")
         current_hash160 = pubkey_to_hash160(public_key)
@@ -27,51 +24,26 @@ def find_private_key(start_number, end_number, target_hash160, shared_dict, lock
 
     return None
 
-def monitor(shared_dict, lock):
-    start_time = time.time()
-
-    while True:
-        time.sleep(10)  # wait for 10 seconds
-        with lock:
-            keys_scanned = shared_dict['keys_scanned']
-            shared_dict['keys_scanned'] = 0  # reset the counter
-
-        print(f"Speed: {keys_scanned / (time.time() - start_time)} keys/s")
-
-def worker(args):
-    return find_private_key(*args)
-
 if __name__ == "__main__":
     start_number = 73714918700800278528
-    end_number = 73786976294838206463 - 1  
-    target_hash160 = "20d45a6a762535700ce9e0b216e31994335db8a5"
-    vcpus = 56
+    end_number = 73786976294838206463 - 1  # The maximum possible value for a private key in an elliptic curve.
+    target_hash160 = bytes.fromhex("20d45a6a762535700ce9e0b216e31994335db8a5")
 
-    # A shared dictionary and a lock
-    manager = multiprocessing.Manager()
-    shared_dict = manager.dict()
-    shared_dict['keys_scanned'] = 0
-    lock = manager.Lock()
+    # Compute number of vCPUs
+    num_vCPUs = multiprocessing.cpu_count()
 
-    # Start the monitor process
-    monitor_process = multiprocessing.Process(target=monitor, args=(shared_dict, lock))
-    monitor_process.start()
+    # Create equally spaced intervals for each vCPU
+    intervals = [(i*(end_number-start_number)//num_vCPUs+start_number, (i+1)*(end_number-start_number)//num_vCPUs+start_number, target_hash160) for i in range(num_vCPUs)]
+    
+    with multiprocessing.Pool(num_vCPUs) as pool:
+        results = pool.map(find_private_key, intervals)
+        
+    # Filter out any None results (where no key was found)
+    results = [result for result in results if result is not None]
 
-    # Divide the work among the available CPUs
-    pool = multiprocessing.Pool(vcpus)
-    ranges = [(start_number + i * (end_number - start_number) // vcpus, 
-               start_number + (i+1) * (end_number - start_number) // vcpus, 
-               target_hash160, shared_dict, lock) for i in range(vcpus)]
-
-    results = pool.map(worker, ranges)
-
-    # Check for a valid result
-    for result in results:
-        if result is not None:
-            print(f"Private key found:{result}")
-            print(f"Private key found:{ hex(result) [2:]  }")
-            pool.terminate()  # Stop all worker processes
-            monitor_process.terminate()  # Stop the monitor process
-            break
+    if results:
+        for found_private_key in results:
+            print(f"Private key found: {found_private_key}")
+            print(f"Private key found: {hex(found_private_key)[2:]}")
     else:
         print("No private key found in the specified range.")
