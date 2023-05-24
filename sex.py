@@ -3,6 +3,7 @@ import binascii
 import ecdsa
 import random
 import multiprocessing
+import time
 
 def pubkey_to_hash160(public_key_bytes):
     sha256 = hashlib.sha256(public_key_bytes).digest()
@@ -12,15 +13,24 @@ def pubkey_to_hash160(public_key_bytes):
 
 def find_private_key(start_number, end_number, target_hash160):
     curve = ecdsa.SECP256k1
+    start_time = time.time()
+    keys_scanned = 0
 
     for number in range(start_number, end_number+1):
-        print(f"Scanning private key (decimal): {number}")  
+        keys_scanned += 1
         private_key = ecdsa.SigningKey.from_secret_exponent(number, curve)
         public_key = private_key.get_verifying_key().to_string("compressed")
         current_hash160 = pubkey_to_hash160(public_key)
 
         if current_hash160 == target_hash160:
             return number
+
+        if keys_scanned % 1000000 == 0:  # adjust this number based on your expected speed
+            elapsed_time = time.time() - start_time
+            if elapsed_time >= 10:  # print every 10 seconds
+                print(f"Speed: {keys_scanned / elapsed_time} keys/s")
+                start_time = time.time()
+                keys_scanned = 0
 
     return None
 
